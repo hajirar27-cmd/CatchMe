@@ -24,6 +24,13 @@ Deployed with GitHub Pages: https://hajirar27-cmd.github.io/CatchMe/
   - **vanishes** in a puff of smoke and reappears further on, leaving a **decoy log** behind (don't net the log!).
 - Tap right where a hiding ninja is and you **flush him out** - he leaps into the air for a split second: your chance.
 
+## Graphics
+Physically-based materials with procedurally generated textures (bark, thatch, planks, fabric, stone, soil, leaves), real-time
+moonlight shadows, a night-sky reflection environment, reflective pond water, wind-blown grass, drifting ground mist and moonbeams,
+bloom on lanterns/fireflies/portal and a light colour grade (vignette + grain). No image assets - everything is generated at startup.
+
+Quality adapts automatically (shadows + bloom + MSAA -> lighter -> minimal) if the device is slow. Force a level with `?q=2`, `?q=1` or `?q=0`.
+
 ## Layout
 ```
 index.html        page + HUD/menu markup
@@ -31,10 +38,11 @@ css/style.css     UI styling
 src/main.js       game loop, ninja AI (timed move segments), net throwing, camera, HUD
 src/jungle.js     endless jungle along the path: ground, forest, houses, tents, stalls, trees, ponds, exit portal
 src/characters.js procedural ninja model + animation (run, leap, roll, crouch)
+src/textures.js   procedural PBR textures (colour + normal maps), lumpy foliage geometry
 src/effects.js    pooled smoke/spark sprites
 src/audio.js      tiny synthesized sound effects
 src/constants.js  tuning values (speed, nets, level length, camera)
-vendor/           three.js r170 (vendored, no build step)
+vendor/           three.js r170 + post-processing addons (vendored, no build step)
 ```
 
 Tuning lives in `src/constants.js`. The ninja's behaviour is `planNext()` in `src/main.js`: each prop type

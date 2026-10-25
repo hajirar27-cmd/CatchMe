@@ -16,6 +16,8 @@ export const G = {
   CAM_BACK: 10.8,
   LOOK_AHEAD: 22,
   HFOV: 44,
+  // moonlight direction (from the scene towards the moon): ahead of the ninja, so he is rim-lit and shadows fall toward the camera
+  MOON_DIR: [-18, 34, 38],
   // ninja model
   NINJA_SCALE: 1.25,
 };

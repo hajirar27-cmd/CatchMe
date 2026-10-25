@@ -4,6 +4,11 @@ import { createNinja, animateNinja } from './characters.js';
 import { Effects } from './effects.js';
 import { Sfx } from './audio.js';
 import { G, LANES } from './constants.js';
+import { EffectComposer } from '../vendor/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from '../vendor/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from '../vendor/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from '../vendor/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from '../vendor/addons/postprocessing/ShaderPass.js';
 
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -14,18 +19,67 @@ const app = $('app');
 const canvas = $('c');
 
 // ---------- renderer / scene ----------
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-const SKY = 0x0b1c22;
+const params = new URLSearchParams(location.search);
+const forcedQ = params.has('q') ? clamp(+params.get('q') || 0, 0, 2) : null;
+// quality: 2 = shadows + bloom + MSAA, 1 = lighter, 0 = no shadows/post (auto-steps down on slow devices)
+let quality = forcedQ ?? 2;
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+const DPR = window.devicePixelRatio || 1;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+const SKY = 0x0c1e26;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(SKY);
-scene.fog = new THREE.Fog(SKY, 34, 95);
+scene.fog = new THREE.FogExp2(SKY, 0.017);
 
 const camera = new THREE.PerspectiveCamera(70, 0.5, 0.1, 400);
+
+// post-processing: bloom for lanterns/fireflies/portal, then tone-map + a light colour grade
+const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: 4 });
+const composer = new EffectComposer(renderer, rt);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.65, 0.78);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+const gradePass = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime; varying vec2 vUv;
+    void main(){
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      float l = dot(c, vec3(0.299, 0.587, 0.114));
+      c = mix(c * vec3(0.9, 1.02, 1.1), c * vec3(1.08, 1.03, 0.94), smoothstep(0.15, 0.75, l));
+      c = mix(vec3(l), c, 1.08);
+      vec2 d = (vUv - 0.5) * vec2(1.0, 1.1);
+      c *= mix(0.55, 1.0, smoothstep(0.85, 0.2, length(d)));
+      float g = fract(sin(dot(vUv * vec2(1234.5, 987.6) + uTime, vec2(12.9898, 78.233))) * 43758.5453);
+      c += (g - 0.5) * 0.022;
+      gl_FragColor = vec4(c, 1.0);
+    }`,
+});
+composer.addPass(gradePass);
+
+function applyQuality() {
+  const pr = quality >= 2 ? Math.min(DPR, 2) : quality === 1 ? Math.min(DPR, 1.5) : Math.min(DPR, 1.25);
+  renderer.setPixelRatio(pr);
+  composer.setPixelRatio(pr);
+  for (const t of [composer.renderTarget1, composer.renderTarget2]) { t.samples = quality >= 2 ? 4 : 0; t.dispose(); }
+  bloom.enabled = quality >= 1;
+  moonLight.castShadow = quality >= 1;
+  moonLight.shadow.mapSize.set(quality >= 2 ? 2048 : 1024, quality >= 2 ? 2048 : 1024);
+  if (moonLight.shadow.map) { moonLight.shadow.map.dispose(); moonLight.shadow.map = null; }
+  resize();
+}
+
 function resize() {
   const w = app.clientWidth;
   const h = app.clientHeight;
   renderer.setSize(w, h, false);
+  composer.setSize(w, h);
+  bloom.setSize(Math.max(2, w >> 1), Math.max(2, h >> 1));
   camera.aspect = w / h;
   const hf = (G.HFOV * Math.PI) / 180;
   camera.fov = camera.aspect < 1 ? (2 * Math.atan(Math.tan(hf / 2) / camera.aspect) * 180) / Math.PI : 62;
@@ -33,13 +87,44 @@ function resize() {
 }
 new ResizeObserver(resize).observe(app);
 
-scene.add(new THREE.HemisphereLight(0x8fb8c8, 0x1a2a1c, 1.05));
-const moonLight = new THREE.DirectionalLight(0xbcd6ff, 1.0);
-moonLight.position.set(-12, 28, -18);
-scene.add(moonLight);
-// a soft moonbeam that follows the ninja so he stays readable in the dark
-const beam = new THREE.PointLight(0xa9d0ff, 45, 20, 2);
+const MOON = new THREE.Vector3(...G.MOON_DIR);
+scene.add(new THREE.HemisphereLight(0x7fa4c4, 0x1a2a1c, 0.7));
+const moonLight = new THREE.DirectionalLight(0xbcd2ff, 2.6);
+moonLight.shadow.bias = -0.0005;
+moonLight.shadow.normalBias = 0.05;
+{
+  const sc = moonLight.shadow.camera;
+  sc.left = -19; sc.right = 19; sc.top = 32; sc.bottom = -32; sc.near = 1; sc.far = 140;
+}
+scene.add(moonLight, moonLight.target);
+// a soft cool fill that follows the ninja so he stays readable against the dark path
+const beam = new THREE.PointLight(0x9fc4ff, 14, 22, 1.6);
 scene.add(beam);
+
+// reflections / ambient light from a procedural night sky
+{
+  const pm = new THREE.PMREMGenerator(renderer);
+  const env = new THREE.Scene();
+  const c = document.createElement('canvas');
+  c.width = 8; c.height = 256;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, 256);
+  gr.addColorStop(0, '#16345e');
+  gr.addColorStop(0.45, '#2c5a6e');
+  gr.addColorStop(0.55, '#16343a');
+  gr.addColorStop(1, '#07120e');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 8, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  env.add(new THREE.Mesh(new THREE.SphereGeometry(50, 24, 16), new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide })));
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(4, 16, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 10, 12) }));
+  moon.position.copy(MOON).normalize().multiplyScalar(44);
+  env.add(moon);
+  scene.environment = pm.fromScene(env, 0.03).texture;
+  scene.environmentIntensity = 0.85;
+  pm.dispose();
+}
 
 const sky = new THREE.Group();
 scene.add(sky);
@@ -71,7 +156,9 @@ scene.add(sky);
   sky.add(moon);
 }
 
-const world = new Jungle(scene);
+const tLoad = performance.now();
+const world = new Jungle(scene, { shadows: true });
+const loadMs = Math.round(performance.now() - tLoad);
 const fx = new Effects(scene);
 const sfx = new Sfx();
 const rig = createNinja();
@@ -630,6 +717,10 @@ function updateCamera(dt) {
   camera.lookAt(cam.x * 0.7, 1.2, cam.z + G.LOOK_AHEAD);
   sky.position.set(camera.position.x, 0, camera.position.z);
   beam.position.set(ninja.x, 8, ninja.z - 7);
+  // moonlight (and its shadow frustum) follows the action
+  moonLight.target.position.set(cam.x, 0, ninja.z + 6);
+  moonLight.position.copy(moonLight.target.position).add(MOON);
+  gradePass.uniforms.uTime.value = S.time;
 }
 
 function updateHud() {
@@ -695,13 +786,25 @@ resize();
 camera.position.set(cam.x, G.CAM_Y, cam.z);
 
 let last = performance.now();
+let frames = 0, acc = 0;
 function frame(now) {
-  step((now - last) / 1000);
+  const dt = (now - last) / 1000;
+  step(dt);
   last = now;
-  renderer.render(scene, camera);
+  composer.render();
+  // step quality down on slow devices (after a short warm-up), unless it was forced via ?q=
+  frames++;
+  if (forcedQ === null && frames > 90 && quality > 0) {
+    acc += dt;
+    if (frames % 60 === 0) {
+      if (acc / 60 > 0.032) { quality--; applyQuality(); frames = 60; }
+      acc = 0;
+    }
+  }
   requestAnimationFrame(frame);
 }
+applyQuality();
 requestAnimationFrame(frame);
 
 // handy for debugging / automated tests
-window.__catchme = { S, ninja, world, camera, step, startGame, project, ninjaExposed, canvas };
+window.__catchme = { loadMs, S, ninja, world, camera, step, startGame, project, ninjaExposed, canvas };
