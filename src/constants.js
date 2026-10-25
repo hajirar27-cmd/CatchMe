@@ -1,3 +1,6 @@
+export const LANE_W = 2.0;
+export const LANES = [-2, 0, 2];
+
 export const G = {
   // ninja
   SPEED: 6.2,
@@ -5,13 +8,14 @@ export const G = {
   SPEED_MAX: 9.5,
   // rounds
   NETS: 5,
-  LEVEL_LEN: 110,
+  LEVEL_LEN: 120,
   LEN_PER_LEVEL: 12,
-  // camera (side-on view; hfov keeps the path width constant on tall phones)
-  CAM_Y: 7,
-  CAM_Z: -20,
-  LOOK_Y: 2.2,
-  HFOV: 32,
+  // camera: behind and above the ninja, looking down the path (Subway Surfers style).
+  // HFOV keeps the three lanes in view on tall phone screens.
+  CAM_Y: 7.4,
+  CAM_BACK: 10.8,
+  LOOK_AHEAD: 22,
+  HFOV: 44,
   // ninja model
-  NINJA_SCALE: 1.5,
+  NINJA_SCALE: 1.25,
 };

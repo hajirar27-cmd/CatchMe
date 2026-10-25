@@ -1,12 +1,13 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { Jungle } from './jungle.js';
+import { Jungle, BRANCH_LEN } from './jungle.js';
 import { createNinja, animateNinja } from './characters.js';
 import { Effects } from './effects.js';
 import { Sfx } from './audio.js';
-import { G } from './constants.js';
+import { G, LANES } from './constants.js';
 
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
+const pickOf = (arr) => arr[(Math.random() * arr.length) | 0];
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, k) => a + (b - a) * k;
 const app = $('app');
@@ -18,26 +19,26 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 const SKY = 0x0b1c22;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(SKY);
-scene.fog = new THREE.Fog(SKY, 32, 88);
+scene.fog = new THREE.Fog(SKY, 34, 95);
 
-const camera = new THREE.PerspectiveCamera(50, 0.5, 0.1, 400);
+const camera = new THREE.PerspectiveCamera(70, 0.5, 0.1, 400);
 function resize() {
   const w = app.clientWidth;
   const h = app.clientHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   const hf = (G.HFOV * Math.PI) / 180;
-  camera.fov = camera.aspect < 1 ? (2 * Math.atan(Math.tan(hf / 2) / camera.aspect) * 180) / Math.PI : 46;
+  camera.fov = camera.aspect < 1 ? (2 * Math.atan(Math.tan(hf / 2) / camera.aspect) * 180) / Math.PI : 62;
   camera.updateProjectionMatrix();
 }
 new ResizeObserver(resize).observe(app);
 
 scene.add(new THREE.HemisphereLight(0x8fb8c8, 0x1a2a1c, 1.05));
 const moonLight = new THREE.DirectionalLight(0xbcd6ff, 1.0);
-moonLight.position.set(-10, 26, -22);
+moonLight.position.set(-12, 28, -18);
 scene.add(moonLight);
 // a soft moonbeam that follows the ninja so he stays readable in the dark
-const beam = new THREE.PointLight(0xa9d0ff, 40, 18, 2);
+const beam = new THREE.PointLight(0xa9d0ff, 45, 20, 2);
 scene.add(beam);
 
 const sky = new THREE.Group();
@@ -46,12 +47,9 @@ scene.add(sky);
   const n = 220;
   const pos = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI;
-    const e = Math.random() * 0.8 + 0.25;
-    const r = 230;
-    pos[i * 3] = Math.cos(a) * r * 1.2 - r * 0.2;
-    pos[i * 3 + 1] = Math.sin(e) * r * 0.8;
-    pos[i * 3 + 2] = 120 + Math.random() * 100;
+    pos[i * 3] = (Math.random() - 0.5) * 380;
+    pos[i * 3 + 1] = 40 + Math.random() * 130;
+    pos[i * 3 + 2] = 120 + Math.random() * 120;
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -68,8 +66,8 @@ scene.add(sky);
   x.fillStyle = gr;
   x.fillRect(0, 0, 128, 128);
   const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), fog: false, depthWrite: false }));
-  moon.scale.setScalar(70);
-  moon.position.set(-30, 120, 190);
+  moon.scale.setScalar(60);
+  moon.position.set(-30, 85, 170);
   sky.add(moon);
 }
 
@@ -93,25 +91,23 @@ const S = {
   score: 0,
   nets: G.NETS,
   time: 0,
-  sinceSpawn: 0,
   caughtT: 0,
-  overT: 0,
   timeScale: 1,
   shake: 0,
   toastT: 0,
-  startX: 0,
-  exitX: Infinity,
+  startZ: 0,
+  exitZ: Infinity,
   escaping: false,
 };
 
 const ninja = {
-  x: 0, y: 0, z: 0, vis: 1,
+  x: 0, y: 0, z: 0, vis: 1, heading: 0,
   pose: 'run', // run | air | roll | crouch | hide | vanish | skim | startle
-  phase: 0, rollAng: 0, crouch: 0, air: 0, roll: 0,
+  phase: 0, rollAng: 0, crouch: 0, air: 0, roll: 0, boost: 0,
   seg: null, queue: [], hideProp: null, wisp: 0, trail: 0, lastVanish: -9,
 };
 
-const cam = { x: 0 };
+const cam = { x: 0, z: 0 };
 
 const hud = {
   score: $('score'), level: $('level'), nets: [...$('nets').children],
@@ -146,16 +142,17 @@ function seg(c, to, o) {
   ninja.queue.push(s);
   return s;
 }
-const runTo = (c, x, z = c.z) => seg(c, { x, z }, { dur: Math.hypot(x - c.x, z - c.z) / speed(), pose: 'run' });
-const skimTo = (c, x) => seg(c, { x }, { dur: Math.abs(x - c.x) / speed(), pose: 'skim' });
+const dist2 = (c, x, z) => Math.hypot(x - c.x, z - c.z);
+const runTo = (c, x, z) => seg(c, { x, z }, { dur: dist2(c, x, z) / speed(), pose: 'run' });
+const skimTo = (c, z) => seg(c, { z }, { dur: Math.abs(z - c.z) / speed(), pose: 'skim' });
 const leapTo = (c, to, arc, dur) => seg(c, to, { dur, arc, pose: 'air' });
-const rollTo = (c, x, z = c.z) => {
-  const d = Math.abs(x - c.x);
+const rollTo = (c, x, z) => {
+  const d = dist2(c, x, z);
   return seg(c, { x, z }, { dur: d / (speed() * 1.7), pose: 'roll', spin: d * 1.25 });
 };
 const holdHide = (c, prop, dur) => seg(c, {}, { dur, pose: 'hide', onStart: () => { ninja.hideProp = prop; }, onEnd: () => { ninja.hideProp = null; } });
-const vanishTo = (c, x, dur) =>
-  seg(c, { x, y: 0 }, {
+const vanishTo = (c, x, z, dur) =>
+  seg(c, { x, z, y: 0 }, {
     dur, pose: 'vanish', vis: 0,
     onStart: () => vanishFx(true),
     onEnd: () => vanishFx(false),
@@ -187,110 +184,128 @@ function addDecoy(x, y, z) {
   decoys.push({ g, x, y: y + 0.4, z, t: 2.6 });
 }
 
+// lanes the prop doesn't block
+function freeLanes(P) { return LANES.filter((l) => Math.abs(l - P.x) > P.w / 2 + 0.65); }
+function nearestLane(P) {
+  const f = freeLanes(P);
+  if (!f.length) return null;
+  f.sort((a, b) => Math.abs(a - ninja.x) - Math.abs(b - ninja.x));
+  return f[0];
+}
+
 // Pick what he does next based on what's ahead of him.
 function planNext() {
   const n = ninja;
-  const c = { x: n.x, y: 0, z: 0 };
+  const c = { x: n.x, y: 0, z: n.z };
   const L = S.level;
-  const P = world.nextProp(n.x + 1.2);
-  const leftEdge = P ? P.x - P.w / 2 : n.x + 30;
-  const gap = leftEdge - n.x;
+  const P = world.nextProp(n.z + 1.0);
 
   // near the exit: head for the portal
-  if (n.x > S.exitX - 12 && !S.escaping && S.mode === 'play') {
-    runTo(c, S.exitX - 1.2);
-    const s = leapTo(c, { x: S.exitX, y: 2.6, z: 3.2 }, 1.0, 0.6);
+  if (n.z > S.exitZ - 14 && !S.escaping && S.mode === 'play') {
+    runTo(c, 0, S.exitZ - 1.6);
+    const s = leapTo(c, { x: 0, y: 2.6, z: S.exitZ + 0.4 }, 1.0, 0.6);
     s.onStart = () => { S.escaping = true; };
-    s.onEnd = () => { ninja.vis = 0; fx.puff(S.exitX, 2.6, 3.2, 20, 0xb8a4ff, 4); escaped(); };
+    s.onEnd = () => { ninja.vis = 0; fx.puff(0, 2.6, S.exitZ, 20, 0xb8a4ff, 4); escaped(); };
     return;
   }
 
+  const zf = P ? P.z - P.d / 2 : n.z + 40;
+  const zb = P ? P.z + P.d / 2 : n.z + 40;
+  const room = zf - n.z;
+
   // vanish in the open between obstacles
-  if (gap > 8 && S.time - n.lastVanish > 5 && Math.random() < 0.2 + L * 0.06) {
+  if (room > 9 && S.time - n.lastVanish > 5 && Math.random() < 0.2 + L * 0.06) {
     n.lastVanish = S.time;
-    runTo(c, n.x + 1.2);
-    vanishTo(c, Math.min(leftEdge - 2.5, n.x + rand(5, 8)), rand(0.8, 1.3));
+    const lane = pickOf(LANES);
+    runTo(c, n.x, n.z + 1.2);
+    vanishTo(c, lane, Math.min(zf - 3.5, n.z + rand(6, 9)), rand(0.8, 1.3));
     return;
   }
-  if (!P) { runTo(c, n.x + 12); return; }
+  if (!P) { runTo(c, n.x, n.z + 14); return; }
 
   const wHide = 2 + L * 0.3;
   const choices = [];
   const add = (w, fn) => choices.push([w, fn]);
-  const edgeL = P.x - P.w / 2;
-  const edgeR = P.x + P.w / 2;
-  const behind = () => {
-    runTo(c, P.x - P.w * 0.12);
+  const lane = nearestLane(P);
+  const approach = (ln) => runTo(c, ln, Math.max(c.z + 1.0, zf - 3.4));
+  const roomOk = room > 5.0;
+
+  // slip in behind the prop (beyond it as seen from the camera) after passing it in a free lane
+  const behind = (spotX, dz = 1.6) => {
+    approach(lane);
+    runTo(c, lane, zb + 0.3);
+    rollTo(c, spotX, zb + dz);
     holdHide(c, P, hideDur());
-    rollTo(c, edgeR + 2.6);
+    rollTo(c, spotX, zb + 5.5);
   };
+  const pass = () => { approach(lane); runTo(c, lane, zb + 2.0); };
+  const vanishPast = () => { approach(lane); runTo(c, lane, zf - 0.6); vanishTo(c, lane, zb + 1.8, rand(0.8, 1.2)); };
 
   switch (P.type) {
     case 'house':
-      if (P.layer === 'fg') add(wHide + 1, behind);
-      add(2, () => {
-        runTo(c, edgeL - 0.9);
-        leapTo(c, { x: edgeL + 0.8, y: P.roofY, z: P.z }, 1.3, 0.55);
-        runTo(c, edgeR - 0.8);
-        leapTo(c, { x: edgeR + 2.4, y: 0, z: 0 }, 1.2, 0.65);
-      });
-      if (L >= 2) add(1 + L * 0.3, () => { runTo(c, edgeL - 0.4); vanishTo(c, edgeR + 1.8, rand(0.8, 1.2)); });
-      add(1, () => runTo(c, edgeR + 2));
+      if (roomOk) add(wHide + 1, () => behind(P.x));
+      if (roomOk) {
+        add(2.2, () => {
+          approach(lane);
+          runTo(c, lane, zf - 0.6);
+          leapTo(c, { x: P.x, y: P.roofY, z: zf + 0.9 }, 1.3, 0.55);
+          runTo(c, P.x, zb - 0.9);
+          leapTo(c, { x: pickOf(LANES), y: 0, z: zb + 2.8 }, 1.3, 0.7);
+        });
+      }
+      if (L >= 2 && roomOk) add(1 + L * 0.3, vanishPast);
+      add(1, pass);
       break;
     case 'tent':
-      if (P.layer === 'fg') add(wHide + 1, behind);
-      if (L >= 2) add(1 + L * 0.3, () => { runTo(c, edgeL - 0.2); vanishTo(c, edgeR + 1.6, rand(0.8, 1.2)); });
-      add(1.5, () => rollTo(c, edgeR + 2.5));
+      if (roomOk) add(wHide + 1, () => behind(P.x));
+      if (L >= 2 && roomOk) add(1 + L * 0.3, vanishPast);
+      add(1.5, () => { approach(lane); rollTo(c, lane, zb + 2.0); });
       break;
-    case 'canopy':
-      add(wHide + 1, () => {
-        runTo(c, edgeL + 0.4, -1.2);
-        holdHide(c, P, hideDur());
-        rollTo(c, edgeR + 2, 0);
-      });
-      if (L >= 2) add(1 + L * 0.3, () => { runTo(c, edgeL); vanishTo(c, edgeR + 1.6, rand(0.8, 1.2)); });
-      add(1, () => runTo(c, edgeR + 2));
-      break;
-    case 'tree':
-      add(2.5, () => {
-        runTo(c, P.x - 2.5);
-        leapTo(c, { x: P.x - 3.1, y: P.branchY, z: P.z - 1.45 }, 1.8, 0.65);
-        runTo(c, P.x + 3.1);
-        leapTo(c, { x: P.x + 4.7, y: 0, z: 0 }, 1.2, 0.7);
-      });
-      if (P.layer === 'mid') {
+    case 'canopy': {
+      const spotX = P.x + (lane < P.x ? -1 : 1) * 1.0;
+      if (roomOk) {
         add(wHide + 1, () => {
-          runTo(c, P.x - 2.3);
-          leapTo(c, { x: P.x, y: 0, z: P.z + 2.0 }, 0.9, 0.5);
+          approach(lane);
+          runTo(c, lane, zf + 1.2);
+          rollTo(c, spotX, zf + 1.2);
           holdHide(c, P, hideDur());
-          leapTo(c, { x: P.x + 3.4, y: 0, z: 0 }, 1.0, 0.55);
+          rollTo(c, spotX, zb + 3.2);
         });
-      } else {
-        add(wHide + 1, () => { runTo(c, P.x - 0.1); holdHide(c, P, hideDur()); rollTo(c, P.x + 3.4); });
       }
-      add(1, () => rollTo(c, P.x + 3.2));
+      if (L >= 2 && roomOk) add(1 + L * 0.3, vanishPast);
+      add(1, pass);
       break;
-    case 'pond':
-      add(2, () => {
-        runTo(c, edgeL - 0.5);
-        leapTo(c, { x: edgeR + 0.6, y: 0, z: 0 }, 2.6, 1.0);
-      });
-      add(2, () => { runTo(c, edgeL - 0.2); skimTo(c, edgeR + 0.3); });
-      if (L >= 2) add(1 + L * 0.2, () => { runTo(c, edgeL - 0.3); vanishTo(c, edgeR + 0.8, rand(0.9, 1.3)); });
+    }
+    case 'tree': {
+      const bl = P.x + P.branchSide * 2;
+      if (P.z - BRANCH_LEN / 2 - 2.2 > n.z + 1.0) {
+        add(2.5, () => {
+          runTo(c, bl, P.z - BRANCH_LEN / 2 - 2.2);
+          leapTo(c, { x: P.x + P.branchSide * 1.45, y: P.branchY - 0.05, z: P.z - BRANCH_LEN / 2 + 0.6 }, 1.6, 0.65);
+          runTo(c, P.x + P.branchSide * 1.45, P.z + BRANCH_LEN / 2 - 0.6);
+          leapTo(c, { x: bl, y: 0, z: P.z + BRANCH_LEN / 2 + 2.4 }, 1.2, 0.7);
+        });
+      }
+      if (roomOk) add(wHide + 1, () => behind(P.x, 1.7));
+      add(1, () => { approach(lane); rollTo(c, lane, zb + 2.2); });
       break;
+    }
+    case 'pond': {
+      const ln = LANES.reduce((a, b) => (Math.abs(b - n.x) < Math.abs(a - n.x) ? b : a));
+      add(2, () => { runTo(c, ln, Math.max(c.z + 0.8, zf - 0.8)); leapTo(c, { z: zb + 0.9 }, 2.4, 1.0); });
+      add(2, () => { runTo(c, ln, Math.max(c.z + 0.8, zf - 0.3)); skimTo(c, zb + 0.4); });
+      if (L >= 2) add(1 + L * 0.2, () => { runTo(c, ln, Math.max(c.z + 0.8, zf - 0.3)); vanishTo(c, ln, zb + 1.0, rand(0.9, 1.3)); });
+      break;
+    }
     case 'bush':
-      add(wHide + 1, () => {
-        rollTo(c, P.x);
-        holdHide(c, P, hideDur() * 0.85);
-        runTo(c, edgeR + 2.2);
-      });
-      add(1.5, () => runTo(c, edgeR + 1.8));
+      if (roomOk) add(wHide + 1, () => behind(P.x, 1.3));
+      add(1.5, pass);
       break;
     default:
-      runTo(c, edgeR + 2);
+      runTo(c, n.x, zb + 2);
   }
-  if (!choices.length) { runTo(c, edgeR + 2); return; }
-  let total = choices.reduce((a, b) => a + b[0], 0);
+  if (lane === null && P.type !== 'pond') { runTo(c, n.x, zb + 2); return; }
+  const total = choices.reduce((a, b) => a + b[0], 0);
   let r = Math.random() * total;
   for (const [w, fn] of choices) { r -= w; if (r <= 0) { fn(); return; } }
   choices[0][1]();
@@ -305,12 +320,13 @@ function startSeg(s) {
 
 function updateNinja(dt) {
   const n = ninja;
-  n.boost = Math.max(0, (n.boost || 0) - dt);
+  n.boost = Math.max(0, n.boost - dt);
   if (!n.seg) {
     if (!n.queue.length) planNext();
     if (n.queue.length) startSeg(n.queue.shift());
   }
   const s = n.seg;
+  let vx = 0;
   if (s) {
     s.t += dt;
     const k = Math.min(1, s.t / s.dur);
@@ -318,6 +334,7 @@ function updateNinja(dt) {
     n.z = lerp(s.z0, s.z1, k);
     n.y = lerp(s.y0, s.y1, k) + s.arc * 4 * k * (1 - k);
     n.rollAng = s.spin * k;
+    vx = (s.x1 - s.x0) / s.dur;
     if (k >= 1) {
       const end = s.onEnd;
       n.seg = null;
@@ -325,10 +342,11 @@ function updateNinja(dt) {
       if (end) end();
     }
   }
+  // lean into lane changes
+  n.heading = lerp(n.heading, clamp(vx * 0.12, -0.7, 0.7), Math.min(1, dt * 10));
 
   const pose = n.pose;
-  const targetCrouch = pose === 'hide' || pose === 'crouch' ? 1 : 0;
-  n.crouch = lerp(n.crouch, targetCrouch, Math.min(1, dt * 12));
+  n.crouch = lerp(n.crouch, pose === 'hide' || pose === 'crouch' ? 1 : 0, Math.min(1, dt * 12));
   n.air = lerp(n.air, pose === 'air' || pose === 'startle' ? 1 : 0, Math.min(1, dt * 14));
   n.roll = lerp(n.roll, pose === 'roll' ? 1 : 0, Math.min(1, dt * 16));
   if (pose === 'run' || pose === 'skim') n.phase += speed() * dt * 1.15;
@@ -338,7 +356,7 @@ function updateNinja(dt) {
     n.wisp -= dt;
     if (n.wisp <= 0) {
       n.wisp = 0.22;
-      fx.emit(n.x + rand(-0.3, 0.3), n.hideProp.cueY, n.z - 0.4, { vy: 1.2, life: 1.4, size: 0.8, grow: 0.9, color: 0xb8caff, opacity: 0.55 });
+      fx.emit(n.x + rand(-0.3, 0.3), n.hideProp.cueY, n.z - 0.2, { vy: 1.2, life: 1.4, size: 0.8, grow: 0.9, color: 0xb8caff, opacity: 0.55 });
     }
   }
   if (pose === 'vanish') {
@@ -352,7 +370,7 @@ function updateNinja(dt) {
     n.trail -= dt;
     if (n.trail <= 0) {
       n.trail = 0.1;
-      fx.emit(n.x, 0.2, n.z, { vy: 2.2, vx: -1, life: 0.5, size: 0.35, grow: 0.2, color: 0xbfeaff, opacity: 0.7 });
+      fx.emit(n.x + rand(-0.3, 0.3), 0.2, n.z, { vy: 2.2, life: 0.5, size: 0.35, grow: 0.2, color: 0xbfeaff, opacity: 0.7 });
     }
   }
 }
@@ -381,7 +399,9 @@ const netTex = (() => {
 })();
 const netGeo = new THREE.PlaneGeometry(2, 2);
 
-function netRadius() { return Math.max(1.15, 1.75 - 0.05 * S.level); }
+// the net's footprint on the ground plane (z is foreshortened on screen, so it's taller than it is wide)
+function netRX() { return Math.max(0.95, 1.35 - 0.03 * S.level); }
+function netRZ() { return Math.max(1.25, 1.85 - 0.05 * S.level); }
 function ninjaHeight() { return G.NINJA_SCALE * 2.1 * (1 - 0.45 * ninja.crouch - 0.3 * ninja.roll); }
 
 function project(x, y, z) {
@@ -393,7 +413,8 @@ function project(x, y, z) {
 function ninjaExposed() {
   const n = ninja;
   const H = ninjaHeight();
-  const occ = world.occluders(n.x);
+  const occ = world.occluders(camera.position.z, n.z);
+  for (const m of occ) m.updateWorldMatrix(true, false);
   for (const f of [0.2, 0.5, 0.85]) {
     const p = new THREE.Vector3(n.x, n.y + H * f, n.z);
     const dir = p.clone().sub(camera.position);
@@ -431,30 +452,31 @@ function tap(px, py) {
   lastThrow = now;
   sfx.throwNet();
   ring(px, py, false);
-  // where the tap lands in the ninja's depth plane (world space, so camera lag doesn't matter)
+  // where the tap lands on the ninja's mid-body height plane (world space, so camera motion doesn't matter)
   const w = canvas.clientWidth, h = canvas.clientHeight;
   ray.setFromCamera(new THREE.Vector2((px / w) * 2 - 1, -(py / h) * 2 + 1), camera);
-  const plane = new THREE.Plane(new THREE.Vector3(0, 0, -1), ninja.z);
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(ninja.y + ninjaHeight() / 2));
   const pt = new THREE.Vector3();
   if (!ray.ray.intersectPlane(plane, pt)) return;
   const mesh = new THREE.Mesh(netGeo, new THREE.MeshBasicMaterial({ map: netTex, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+  mesh.rotation.x = -Math.PI / 2;
   scene.add(mesh);
-  flying.push({ t: 0, tx: pt.x, ty: pt.y, tz: pt.z, sx: cam.x, sy: 1.0, sz: G.CAM_Z + 5, mesh, landed: false });
+  flying.push({ t: 0, tx: pt.x, ty: pt.y, tz: pt.z, sx: cam.x, sy: 3.4, sz: cam.z + 4, mesh, landed: false });
 }
 
 function resolveNet(f) {
   const n = ninja;
   if (S.mode !== 'play' || S.escaping) return;
   const H = ninjaHeight();
-  const dx = Math.abs(n.x - f.tx);
-  const dy = Math.abs(n.y + H / 2 - f.ty);
-  if (n.vis > 0.5 && dx < netRadius() && dy < H / 2 + 0.9) {
+  const ex = (n.x - f.tx) / netRX();
+  const ez = (n.z - f.tz) / netRZ();
+  if (n.vis > 0.5 && ex * ex + ez * ez < 1 && Math.abs(n.y + H / 2 - f.ty) < H / 2 + 1.6) {
     const exposed = ninjaExposed();
     if (n.pose === 'hide' && !exposed) { flush(); return; }
     if (exposed && n.pose !== 'vanish') { caught(); return; }
   }
   for (const dc of decoys) {
-    if (Math.abs(dc.x - f.tx) < 1.4 && Math.abs(dc.y - f.ty) < 1.5) {
+    if (Math.abs(dc.x - f.tx) < 1.5 && Math.abs(dc.z - f.tz) < 2.2) {
       fx.puff(dc.x, 0.8, dc.z, 10, 0xc9b79a, 2);
       dc.t = 0;
       toast("It's a log!", 1.0);
@@ -462,7 +484,7 @@ function resolveNet(f) {
       return;
     }
   }
-  fx.puff(f.tx, Math.max(f.ty, 0.3), f.tz, 5, 0xd6c8a0, 1.5);
+  fx.puff(f.tx, 0.4, f.tz, 5, 0xd6c8a0, 1.5);
   useNet();
 }
 
@@ -471,15 +493,16 @@ function updateNets(dt) {
     const f = flying[i];
     f.t += dt;
     const k = Math.min(1, f.t / NET_FLIGHT);
-    f.mesh.position.set(lerp(f.sx, f.tx, k), lerp(f.sy, f.ty, k) + Math.sin(k * Math.PI) * 1.2, lerp(f.sz, f.tz, k));
-    f.mesh.quaternion.copy(camera.quaternion);
+    f.mesh.position.set(lerp(f.sx, f.tx, k), lerp(f.sy, f.ty, k) + Math.sin(k * Math.PI) * 2.2, lerp(f.sz, f.tz, k));
     if (!f.landed) {
-      f.mesh.scale.setScalar(lerp(0.35, netRadius(), k));
+      const sc = lerp(0.3, 1, k);
+      f.mesh.scale.set(netRX() * sc, netRZ() * sc, 1);
       if (k >= 1) { f.landed = true; resolveNet(f); }
     } else {
-      f.mesh.scale.setScalar(netRadius() * (1 + (f.t - NET_FLIGHT) * 0.6));
-      f.mesh.material.opacity = Math.max(0, 1 - (f.t - NET_FLIGHT) / 0.25);
-      if (f.t - NET_FLIGHT > 0.25) { scene.remove(f.mesh); f.mesh.material.dispose(); flying.splice(i, 1); }
+      const e = (f.t - NET_FLIGHT) / 0.25;
+      f.mesh.scale.set(netRX() * (1 + e * 0.3), netRZ() * (1 + e * 0.3), 1);
+      f.mesh.material.opacity = Math.max(0, 1 - e);
+      if (e > 1) { scene.remove(f.mesh); f.mesh.material.dispose(); flying.splice(i, 1); }
     }
   }
 }
@@ -494,9 +517,9 @@ function flush() {
   n.hideProp = null;
   n.boost = 2.0;
   const c = { x: n.x, y: n.y, z: n.z };
-  seg(c, { y: 5.2 }, { dur: 0.3, pose: 'startle' });
+  seg(c, { y: 5.4 }, { dur: 0.3, pose: 'startle' });
   seg(c, {}, { dur: 0.45, pose: 'startle' }); // hangs in the air: the window to catch him
-  seg(c, { x: n.x + 3.5, y: 0, z: 0 }, { dur: 0.5, pose: 'air', arc: 0 });
+  seg(c, { x: n.x, y: 0, z: n.z + 3.5 }, { dur: 0.5, pose: 'air' });
   n.vis = 1;
 }
 
@@ -506,7 +529,7 @@ function caught() {
   S.timeScale = 0.3;
   S.catches++;
   S.nets = Math.min(G.NETS, S.nets + 2);
-  const progress = clamp((ninja.x - S.startX) / (S.exitX - S.startX), 0, 1);
+  const progress = clamp((ninja.z - S.startZ) / (S.exitZ - S.startZ), 0, 1);
   const pts = 100 + S.level * 20 + Math.round((1 - progress) * 60);
   S.score += pts;
   fx.puff(ninja.x, 1.2, ninja.z, 26, 0xb8c4ff, 4);
@@ -527,7 +550,6 @@ canvas.addEventListener('pointerdown', (e) => {
   const r = canvas.getBoundingClientRect();
   tap(e.clientX - r.left, e.clientY - r.top);
 });
-app.addEventListener('pointerdown', (e) => { if (e.target !== canvas && S.mode === 'play') e.preventDefault(); });
 
 // ---------- game flow ----------
 let overReady = false;
@@ -539,19 +561,19 @@ function spawnNinja() {
   const n = ninja;
   n.queue.length = 0;
   n.seg = null;
-  n.x = cam.x + 5;
-  n.y = 0; n.z = 0; n.vis = 1; n.pose = 'run'; n.hideProp = null; n.boost = 0;
+  n.x = pickOf(LANES);
+  n.z = cam.z + 12.5;
+  n.y = 0; n.vis = 1; n.pose = 'run'; n.hideProp = null; n.boost = 0; n.heading = 0;
   n.crouch = 0; n.air = 0; n.roll = 0; n.rollAng = 0;
-  S.startX = n.x;
-  S.exitX = n.x + G.LEVEL_LEN + (S.level - 1) * G.LEN_PER_LEVEL;
+  S.startZ = n.z;
+  S.exitZ = n.z + G.LEVEL_LEN + (S.level - 1) * G.LEN_PER_LEVEL;
   S.escaping = false;
-  S.sinceSpawn = 0;
-  // clear props overlapping the start and put the exit gate in place
+  // clear props overlapping the start, then put the exit portal in place
   world.props = world.props.filter((p) => {
-    if (p.x + p.w / 2 > n.x - 4 && p.x - p.w / 2 < n.x + 14) { scene.remove(p.group); return false; }
+    if (p.z + p.d / 2 > n.z - 6 && p.z - p.d / 2 < n.z + 16) { scene.remove(p.group); return false; }
     return true;
   });
-  world.addGate(S.exitX);
+  world.addGate(S.exitZ);
   rig.root.visible = true;
   fx.puff(n.x, 0.4, n.z, 14);
 }
@@ -596,24 +618,25 @@ window.addEventListener('keydown', (e) => {
 
 // ---------- per-frame ----------
 function updateCamera(dt) {
-  cam.x += (ninja.x - 0.8 - cam.x) * Math.min(1, dt * 2.6);
+  cam.z += (ninja.z - G.CAM_BACK - cam.z) * Math.min(1, dt * 2.6);
+  cam.x += (ninja.x * 0.5 - cam.x) * Math.min(1, dt * 4);
   let sx = 0, sy = 0;
   if (S.shake > 0) {
     S.shake = Math.max(0, S.shake - dt);
     sx = (Math.random() - 0.5) * S.shake * 0.8;
     sy = (Math.random() - 0.5) * S.shake * 0.8;
   }
-  camera.position.set(cam.x + sx, G.CAM_Y + sy, G.CAM_Z);
-  camera.lookAt(cam.x, G.LOOK_Y, 0);
-  sky.position.set(cam.x, 0, 0);
-  beam.position.set(ninja.x - 2, 6, -8);
+  camera.position.set(cam.x + sx, G.CAM_Y + sy, cam.z);
+  camera.lookAt(cam.x * 0.7, 1.2, cam.z + G.LOOK_AHEAD);
+  sky.position.set(camera.position.x, 0, camera.position.z);
+  beam.position.set(ninja.x, 8, ninja.z - 7);
 }
 
 function updateHud() {
   setText(hud.score, String(S.score));
   setText(hud.level, String(S.level));
   hud.nets.forEach((el, i) => el.classList.toggle('used', i >= S.nets));
-  const prog = clamp((ninja.x - S.startX) / (S.exitX - S.startX), 0, 1);
+  const prog = clamp((ninja.z - S.startZ) / (S.exitZ - S.startZ), 0, 1);
   hud.gapfill.style.width = `${(Number.isFinite(prog) ? prog : 0) * 100}%`;
   const danger = prog > 0.78 && S.mode === 'play';
   hud.gap.classList.toggle('danger', danger);
@@ -625,9 +648,8 @@ function step(rawDt) {
   const dt = Math.min(rawDt, 0.05) * S.timeScale;
   S.time += dt;
 
-  if (S.mode === 'play' || S.mode === 'menu') {
+  if (S.mode === 'play' || S.mode === 'menu' || S.mode === 'over') {
     updateNinja(dt);
-    S.sinceSpawn += dt;
   } else if (S.mode === 'caught') {
     S.caughtT -= dt;
     if (S.timeScale < 1) S.timeScale = Math.min(1, S.timeScale + rawDt * 0.9);
@@ -638,8 +660,6 @@ function step(rawDt) {
       spawnNinja();
       toast(`LEVEL ${S.level}`, 1.3);
     }
-  } else if (S.mode === 'over') {
-    updateNinja(dt);
   }
 
   for (let i = decoys.length - 1; i >= 0; i--) {
@@ -647,9 +667,10 @@ function step(rawDt) {
     if (decoys[i].t <= 0) { scene.remove(decoys[i].g); decoys.splice(i, 1); }
   }
 
-  world.update(cam.x, dt, S.exitX, S.level);
+  world.update(cam.z, dt, S.exitZ, S.level);
 
   rig.root.position.set(ninja.x, ninja.y, ninja.z);
+  rig.root.rotation.y = ninja.heading;
   rig.root.visible = ninja.vis > 0.5 && S.mode !== 'caught';
   animateNinja(rig, { phase: ninja.phase, air: ninja.air, crouch: ninja.crouch, roll: ninja.roll, rollAng: ninja.rollAng, t: S.time });
 
@@ -665,11 +686,13 @@ function step(rawDt) {
 }
 
 // start with the world populated so the first frame isn't empty
-world.spawnProps(80, Infinity, 1);
+cam.z = -12;
+world.spawnProps(100, Infinity, 1);
 spawnNinja();
-cam.x = ninja.x - 0.8;
+cam.z = ninja.z - G.CAM_BACK;
+cam.x = ninja.x * 0.5;
 resize();
-camera.position.set(cam.x, G.CAM_Y, G.CAM_Z);
+camera.position.set(cam.x, G.CAM_Y, cam.z);
 
 let last = performance.now();
 function frame(now) {
@@ -681,7 +704,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // handy for debugging / automated tests
-window.__catchme = {
-  S, ninja, world, camera, step, startGame, project, ninjaExposed,
-  canvas,
-};
+window.__catchme = { S, ninja, world, camera, step, startGame, project, ninjaExposed, canvas };

@@ -1,7 +1,7 @@
 # CatchMe
 
 A mobile-first 3D game where **you** are the hunter and a **ninja** is escaping through a moonlit jungle.
-You don't run - you **tap to throw a net**. He won't make it easy.
+Subway-Surfers-style camera behind him, three lanes, running up the screen. You don't run - you **tap to throw a net**. He won't make it easy.
 
 ## Play
 
@@ -19,8 +19,8 @@ Deployed with GitHub Pages: https://hajirar27-cmd.github.io/CatchMe/
 - A hit **catches** him (+score, +2 nets, next level: faster, hides and vanishes more). A miss **costs a net**. Out of nets = game over.
 - If he reaches the **portal** at the end of the level, he escapes.
 - The ninja:
-  - **hides** behind houses, tents, market stalls, bushes and tree trunks (he is truly out of sight - look for the **smoke wisps** over his hiding spot);
-  - **rolls** between obstacles, **leaps onto roofs** and **tree branches**, jumps ponds and skims across the water;
+  - **hides** behind houses, tents, market stalls, bushes and tree trunks - he slips in behind whatever he just passed and is truly out of sight (look for the **smoke wisps** over his hiding spot);
+  - **rolls** between lanes and obstacles, **leaps onto roofs** and runs along the ridge, runs along **tree branches**, jumps ponds and skims across the water;
   - **vanishes** in a puff of smoke and reappears further on, leaving a **decoy log** behind (don't net the log!).
 - Tap right where a hiding ninja is and you **flush him out** - he leaps into the air for a split second: your chance.
 
@@ -29,7 +29,7 @@ Deployed with GitHub Pages: https://hajirar27-cmd.github.io/CatchMe/
 index.html        page + HUD/menu markup
 css/style.css     UI styling
 src/main.js       game loop, ninja AI (timed move segments), net throwing, camera, HUD
-src/jungle.js     endless jungle: ground, forest, houses, tents, stalls, trees, ponds, exit portal
+src/jungle.js     endless jungle along the path: ground, forest, houses, tents, stalls, trees, ponds, exit portal
 src/characters.js procedural ninja model + animation (run, leap, roll, crouch)
 src/effects.js    pooled smoke/spark sprites
 src/audio.js      tiny synthesized sound effects

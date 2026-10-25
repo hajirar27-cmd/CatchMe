@@ -12,7 +12,7 @@ function limb(len, w, mat, x, y) {
   return pivot;
 }
 
-// The ninja: blocky humanoid, feet at y=0, faces +x (runs to the right on screen).
+// The ninja: blocky humanoid, feet at y=0, faces +z (runs away from the camera).
 // root > pivot (body centre, used for rolling) > rig (feet origin, used for crouching)
 export function createNinja() {
   const root = new THREE.Group();
@@ -39,7 +39,7 @@ export function createNinja() {
   const band = new THREE.Mesh(new THREE.CylinderGeometry(0.285, 0.285, 0.1, 16), red);
   band.position.y = 1.84;
   rig.add(band);
-  // eyes (he faces +x after the root rotation, i.e. local +z)
+  // eyes
   const eyeMat = new THREE.MeshBasicMaterial({ color: 0xfff1b0 });
   for (const ex of [-0.1, 0.1]) {
     const eye = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.03), eyeMat);
@@ -73,7 +73,6 @@ export function createNinja() {
   rig.add(sword);
 
   root.scale.setScalar(G.NINJA_SCALE);
-  root.rotation.y = Math.PI / 2;
   return { root, pivot, rig, legs: [legL, legR], arms: [armL, armR], scarf };
 }
 
