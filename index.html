@@ -3,46 +3,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-  <meta name="theme-color" content="#070b1c">
+  <meta name="theme-color" content="#08161a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <title>Catch Me - Ninja Night Chase</title>
+  <title>Catch Me - Jungle Ninja</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <div id="app" class="is-menu">
     <canvas id="c"></canvas>
+    <div id="vignette"></div>
 
     <div id="hud">
       <div class="top">
         <div class="stat"><small>SCORE</small><b id="score">0</b></div>
         <div class="stat mid"><small>LEVEL</small><b id="level">1</b></div>
-        <div class="stat right"><small>CAUGHT</small><b id="caught">0</b></div>
+        <div class="stat right"><small>NETS</small><div id="nets"><i></i><i></i><i></i><i></i><i></i></div></div>
       </div>
       <div id="gap">
-        <span id="gaplabel">NINJA</span>
+        <span id="gaplabel">EXIT</span>
         <div id="gapbar"><i id="gapfill"></i></div>
       </div>
       <div id="toast"></div>
-      <button id="dash" aria-label="Dash"><span>DASH</span></button>
     </div>
 
     <div id="flash"></div>
 
     <section id="menu" class="screen">
       <h1>CATCH<em>ME</em></h1>
-      <p class="tag">The ninja runs.<br>You hunt.</p>
+      <p class="tag">A ninja is escaping through the jungle.<br>Don't let him get away.</p>
       <ul class="how">
-        <li><b>Swipe &larr; &rarr;</b> change lane</li>
-        <li><b>Swipe &uarr;</b> jump low fences</li>
-        <li><b>Hold DASH</b> to close in</li>
-        <li>He <b>hides</b> behind obstacles.<br>Follow the <b>smoke</b>, then swing past!</li>
+        <li><b>TAP</b> the ninja to throw your net</li>
+        <li>He <b>hides</b> behind houses, trees &amp; bushes - watch for the <b>smoke</b></li>
+        <li>He <b>rolls</b>, leaps onto <b>roofs</b> &amp; branches, and <b>vanishes</b></li>
+        <li>Beware the <b>decoy logs</b>! Every miss costs a net.</li>
       </ul>
       <button id="start" class="cta">TAP TO START</button>
     </section>
 
     <section id="over" class="screen hidden">
-      <h2>HE GOT AWAY!</h2>
+      <h2 id="overTitle">HE GOT AWAY!</h2>
       <div class="result"><span id="finalCaught">0</span> caught</div>
       <div class="result big" id="finalScore">0</div>
       <div class="best" id="best"></div>
