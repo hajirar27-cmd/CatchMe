@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#070b1c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Catch Me - Ninja Night Chase</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app" class="is-menu">
+    <canvas id="c"></canvas>
+
+    <div id="hud">
+      <div class="top">
+        <div class="stat"><small>SCORE</small><b id="score">0</b></div>
+        <div class="stat mid"><small>LEVEL</small><b id="level">1</b></div>
+        <div class="stat right"><small>CAUGHT</small><b id="caught">0</b></div>
+      </div>
+      <div id="gap">
+        <span id="gaplabel">NINJA</span>
+        <div id="gapbar"><i id="gapfill"></i></div>
+      </div>
+      <div id="toast"></div>
+      <button id="dash" aria-label="Dash"><span>DASH</span></button>
+    </div>
+
+    <div id="flash"></div>
+
+    <section id="menu" class="screen">
+      <h1>CATCH<em>ME</em></h1>
+      <p class="tag">The ninja runs.<br>You hunt.</p>
+      <ul class="how">
+        <li><b>Swipe &larr; &rarr;</b> change lane</li>
+        <li><b>Swipe &uarr;</b> jump low fences</li>
+        <li><b>Hold DASH</b> to close in</li>
+        <li>He <b>hides</b> behind obstacles.<br>Follow the <b>smoke</b>, then swing past!</li>
+      </ul>
+      <button id="start" class="cta">TAP TO START</button>
+    </section>
+
+    <section id="over" class="screen hidden">
+      <h2>HE GOT AWAY!</h2>
+      <div class="result"><span id="finalCaught">0</span> caught</div>
+      <div class="result big" id="finalScore">0</div>
+      <div class="best" id="best"></div>
+      <button id="retry" class="cta">TRY AGAIN</button>
+    </section>
+  </div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
